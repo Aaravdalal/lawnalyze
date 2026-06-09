@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '../../store/useStore';
 import { MapContainer, TileLayer, useMap, Marker } from 'react-leaflet';
-import { MapPin, ArrowRight, CheckCircle2, Search } from 'lucide-react';
+import { MapPin, ArrowRight, CheckCircle2, Search, Sparkles, Loader2 } from 'lucide-react';
 import area from '@turf/area';
 import { polygon } from '@turf/helpers';
+import { detectLawn } from '../../lib/computerVision';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
 
@@ -12,7 +13,8 @@ import * as L from 'leaflet';
 // Component to handle auto-centering dynamically
 function MapController({ markerPos }: { markerPos: [number, number] | null }) {
   const map = useMap();
-  const location = useStore(state => state.location);
+  const { properties, activePropertyId } = useStore();
+  const location = properties.find(p => p.id === activePropertyId)?.location;
   
   useEffect(() => {
     if (markerPos) {
@@ -29,8 +31,45 @@ function MapController({ markerPos }: { markerPos: [number, number] | null }) {
   return null;
 }
 
+function AutoSelectButton() {
+  const map = useMap();
+  const [isScanning, setIsScanning] = useState(false);
+
+  const handleScan = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsScanning(true);
+    try {
+      // Small timeout to allow state to render loading spinner
+      await new Promise(r => setTimeout(r, 100));
+      const generated = await detectLawn(map);
+      if (generated.length > 0) {
+        map.fire('custom:addlawns', { lawns: generated });
+      } else {
+        alert("No clear lawn detected on screen. Please zoom in or adjust view.");
+      }
+    } catch (err: any) {
+      alert("Error auto-detecting lawn: " + err.message);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  return (
+    <div className="absolute top-16 right-4 z-[500]">
+      <button 
+        onClick={handleScan}
+        disabled={isScanning}
+        className="bg-white/95 backdrop-blur-md border border-primary/20 shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-2xl font-bold text-primary px-5 py-3 flex items-center gap-3 hover:scale-105 transition-all hover:bg-primary hover:text-white disabled:opacity-50"
+      >
+        {isScanning ? <Loader2 className="animate-spin text-inherit" size={20} /> : <Sparkles className="text-inherit" size={20} />}
+        {isScanning ? "Scanning Area..." : "Auto-Select Lawn"}
+      </button>
+    </div>
+  );
+}
+
 // Custom Draw Hook to bypass Vite Rollup issues with obsolete react-leaflet-draw
-function DrawControl({ onCalculateArea }: { onCalculateArea: (area: number, geojson?: any) => void }) {
+function DrawControl({ onChangeLawns }: { onChangeLawns: (lawns: any[]) => void }) {
   const map = useMap();
 
   useEffect(() => {
@@ -62,7 +101,8 @@ function DrawControl({ onCalculateArea }: { onCalculateArea: (area: number, geoj
       map.addControl(drawControl);
 
       const recalcTotalArea = () => {
-        let totalSqFt = 0;
+        const lawns: any[] = [];
+        let index = 1;
         drawnItems.eachLayer((layer: any) => {
           if (layer instanceof L.Polygon) {
             let latlngs: any[] = layer.getLatLngs()[0] as any[];
@@ -72,11 +112,16 @@ function DrawControl({ onCalculateArea }: { onCalculateArea: (area: number, geoj
               coords.push([latlngs[0].lng, latlngs[0].lat]);
               const poly = polygon([coords]);
               const areaSqMeters = area(poly);
-              totalSqFt += Math.round(areaSqMeters * 10.7639);
+              lawns.push({
+                id: layer._leaflet_id || crypto.randomUUID(),
+                name: `Lawn Section ${index++}`,
+                areaSqFt: Math.round(areaSqMeters * 10.7639),
+                boundaryGeoJSON: layer.toGeoJSON()
+              });
             } catch {}
           }
         });
-        onCalculateArea(totalSqFt, drawnItems.toGeoJSON());
+        onChangeLawns(lawns);
       };
 
       const handleDrawCreated = (e: any) => {
@@ -137,6 +182,24 @@ function DrawControl({ onCalculateArea }: { onCalculateArea: (area: number, geoj
         }
       };
       
+      const handleAddLawns = (e: any) => {
+        const lawns = e.lawns;
+        lawns.forEach((l: any) => {
+          const layer = L.geoJSON(l.boundaryGeoJSON);
+          layer.eachLayer((child) => {
+            if (child instanceof L.Polygon) {
+               drawnItems.addLayer(child);
+               // Make the magic polygons editable immediately
+               if ((child as any).editing) (child as any).editing.enable();
+               child.on('edit', recalcTotalArea);
+            }
+          });
+        });
+        recalcTotalArea();
+      };
+
+      map.on('custom:addlawns', handleAddLawns);
+      
       handleKeyDownRef = handleKeyDown;
       window.addEventListener('keydown', handleKeyDown);
 
@@ -146,32 +209,35 @@ function DrawControl({ onCalculateArea }: { onCalculateArea: (area: number, geoj
       isMounted = false;
       if (handleKeyDownRef) window.removeEventListener('keydown', handleKeyDownRef);
       if (handleDrawCreatedRef) map.off((L as any).Draw.Event.CREATED, handleDrawCreatedRef);
+      map.off('custom:addlawns');
       if (drawControl) map.removeControl(drawControl);
       if (drawnItems) map.removeLayer(drawnItems);
     };
-  }, [map, onCalculateArea]);
+  }, [map, onChangeLawns]);
 
   return null;
 }
 
 export function MapSelection() {
-  const { location, setLocation, setLawnAreaSqFt, setOnboardingStep, setBoundaryGeoJSON } = useStore();
-  const [calculatedArea, setCalculatedArea] = useState<number>(0);
-  const [calculatedGeoJSON, setCalculatedGeoJSON] = useState<any>(null);
+  const { properties, activePropertyId, updatePropertyLocation, addLawnSection, setOnboardingStep } = useStore();
+  const location = properties.find(p => p.id === activePropertyId)?.location;
+  
+  const [drawnLawns, setDrawnLawns] = useState<any[]>([]);
+  const calculatedArea = drawnLawns.reduce((sum, lawn) => sum + lawn.areaSqFt, 0);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [markerPos, setMarkerPos] = useState<[number, number] | null>(null);
 
-  const handleCalculateArea = useCallback((area: number, geojson?: any) => {
-    setCalculatedArea(area);
-    setCalculatedGeoJSON(geojson);
-  }, []);
-
   const handleFinish = () => {
-    if (calculatedArea > 0) {
-      setLawnAreaSqFt(calculatedArea);
-      if (calculatedGeoJSON) setBoundaryGeoJSON(calculatedGeoJSON);
+    if (drawnLawns.length > 0 && activePropertyId) {
+      drawnLawns.forEach(lawn => {
+        addLawnSection({
+          name: lawn.name,
+          areaSqFt: lawn.areaSqFt,
+          boundaryGeoJSON: lawn.boundaryGeoJSON
+        });
+      });
       setOnboardingStep('dashboard'); // Transition to main app
     }
   };
@@ -200,8 +266,10 @@ export function MapSelection() {
         // Our water rate DB supports full state names and abbreviations, but mostly US full names.
         const state = addrObj.state || 'Unknown';
         
-        setLocation(road, city, state, [latNum, lonNum]);
-        setCalculatedGeoJSON(null); // Wipe unsaved polygon because they just flew across the country
+        if (activePropertyId) {
+          updatePropertyLocation(activePropertyId, { address: road, city, state, coords: [latNum, lonNum] });
+        }
+        setDrawnLawns([]); // Wipe unsaved polygon because they just flew across the country
       } else {
         alert("Address not found. Please try another query.");
       }
@@ -402,8 +470,10 @@ export function MapSelection() {
               url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
               maxNativeZoom={21}
               maxZoom={22}
+              crossOrigin="anonymous"
             />
-            <DrawControl onCalculateArea={handleCalculateArea} />
+            <DrawControl onChangeLawns={setDrawnLawns} />
+            <AutoSelectButton />
             <Marker 
               position={markerPos || location?.coords || [34.0522, -118.2437]}
               icon={L.divIcon({
@@ -417,6 +487,21 @@ export function MapSelection() {
               })}
             />
           </MapContainer>
+          
+          {/* Display drawn distinct sections on the map overlay */}
+          {drawnLawns.length > 0 && (
+            <div className="absolute top-32 right-4 z-[400] bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-surface-variant max-h-[60%] overflow-y-auto w-64">
+              <h4 className="font-bold text-on-surface mb-2">Lawn Sections ({drawnLawns.length})</h4>
+              <div className="space-y-2">
+                {drawnLawns.map((lawn) => (
+                  <div key={lawn.id} className="flex justify-between items-center bg-surface-container px-3 py-2 rounded-lg text-sm">
+                    <span className="font-medium truncate mr-2">{lawn.name}</span>
+                    <span className="font-bold text-primary">{lawn.areaSqFt.toLocaleString()} sqft</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

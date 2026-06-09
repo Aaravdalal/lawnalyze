@@ -1,12 +1,15 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Droplets, Calculator, Ruler, Sun, Loader2, CloudRain, Thermometer, Wind } from "lucide-react";
+import { Droplets, Calculator, Ruler, Sun, Loader2, CloudRain, Thermometer, Wind, Plus } from "lucide-react";
 import { useStore } from "../store/useStore";
 import { useWaterStats } from "../hooks/useWaterStats";
 import { PLANT_FACTOR, IRRIGATION_EFFICIENCY, CONVERSION_FACTOR } from "../lib/waterMath";
 
 export function HouseholdDashboard() {
-  const lawnAreaSqFt = useStore(state => state.lawnAreaSqFt) || 1250;
+  const { properties, activePropertyId, setActivePropertyId, setOnboardingStep } = useStore();
+  const activeProperty = properties.find(p => p.id === activePropertyId);
+  const lawnAreaSqFt = activeProperty?.lawns.reduce((sum, lawn) => sum + lawn.areaSqFt, 0) || 0;
   
+
   const { stats, loading } = useWaterStats();
 
   if (loading || !stats) {
@@ -23,9 +26,27 @@ export function HouseholdDashboard() {
 
   return (
     <div className="max-w-6xl mx-auto w-full pb-12 pt-8 px-4">
-      <header className="mb-10 text-center">
-        <h1 className="text-4xl lg:text-5xl font-heading font-extrabold text-on-surface tracking-tight mb-4">Lawn Analysis Complete</h1>
-        <p className="text-on-surface-variant font-medium text-lg">We successfully processed your property boundaries.</p>
+      <header className="mb-10 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div>
+          <h1 className="text-4xl lg:text-5xl font-heading font-extrabold text-on-surface tracking-tight mb-2 md:text-left text-center">Lawn Analysis Complete</h1>
+          <p className="text-on-surface-variant font-medium text-lg md:text-left text-center">We successfully processed your property boundaries.</p>
+        </div>
+        {properties.length > 0 && (
+          <div className="flex items-center gap-2">
+            <select 
+              value={activePropertyId || ''} 
+              onChange={(e) => setActivePropertyId(e.target.value)}
+              className="w-[200px] bg-surface px-4 py-2 border border-surface-variant rounded-xl font-bold text-on-surface outline-none"
+            >
+              {properties.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <button onClick={() => setOnboardingStep('address')} className="p-2.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-xl transition-colors title='Add Property'">
+              <Plus size={20} />
+            </button>
+          </div>
+        )}
       </header>
       
       <div className="flex flex-col gap-6">
@@ -61,6 +82,29 @@ export function HouseholdDashboard() {
                 <span className="text-xl font-bold text-on-surface-variant mt-1">{yearlyWaterEstimate.toLocaleString()} gal/year</span>
               </div>
             </div>
+
+            {/* Individual Lawns Breakdown */}
+            {activeProperty && activeProperty.lawns.length > 1 && (
+              <div className="mb-8">
+                <h4 className="font-bold text-on-surface mb-4">Lawn Section Breakdown</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  {activeProperty.lawns.map(lawn => {
+                    // Simple proportional estimate
+                    const proportion = lawnAreaSqFt > 0 ? lawn.areaSqFt / lawnAreaSqFt : 0;
+                    const lawnWeekly = Math.round(weeklyWaterEstimate * proportion);
+                    return (
+                      <div key={lawn.id} className="bg-surface-container-lowest border border-surface-variant p-4 rounded-xl shadow-sm">
+                        <div className="font-bold text-on-surface mb-1">{lawn.name}</div>
+                        <div className="text-sm text-on-surface-variant flex justify-between">
+                          <span>{lawn.areaSqFt.toLocaleString()} sq ft</span>
+                          <span className="font-bold text-tertiary">{lawnWeekly.toLocaleString()} gal/wk</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Dropdown Reasoning */}
             <details className="group bg-surface-variant rounded-2xl overflow-hidden [&_summary::-webkit-details-marker]:hidden cursor-pointer">

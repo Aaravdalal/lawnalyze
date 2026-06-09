@@ -23,7 +23,9 @@ const DEFAULT_RATE = 0.006; // National avg
 
 export function TurfInsights() {
   const { stats, loading } = useWaterStats();
-  const { location } = useStore();
+  const { properties, activePropertyId } = useStore();
+  const property = properties.find(p => p.id === activePropertyId);
+  const location = property?.location;
 
   if (loading || !stats) {
     return (

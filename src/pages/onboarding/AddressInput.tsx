@@ -4,7 +4,7 @@ import { useStore } from '../../store/useStore';
 import { MapPin, ArrowRight } from 'lucide-react';
 
 export function AddressInput() {
-  const { setLocation, setOnboardingStep } = useStore();
+  const { addProperty, setOnboardingStep } = useStore();
   const [address, setAddress] = useState('');
   const [city, setCity] = useState('');
   const [stateCode, setStateCode] = useState('');
@@ -21,14 +21,14 @@ export function AddressInput() {
         const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1`);
         const data = await response.json();
         if (data && data.length > 0) {
-          setLocation(address, city, stateCode, [parseFloat(data[0].lat), parseFloat(data[0].lon)]);
+          addProperty({ name: `${address}`, location: { address, city, state: stateCode, coords: [parseFloat(data[0].lat), parseFloat(data[0].lon)] } });
           setOnboardingStep('map');
         } else {
           const cityQuery = encodeURIComponent(`${city}, ${stateCode}`);
           const cityRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${cityQuery}&limit=1`);
           const cityData = await cityRes.json();
           if (cityData && cityData.length > 0) {
-            setLocation(address, city, stateCode, [parseFloat(cityData[0].lat), parseFloat(cityData[0].lon)]);
+            addProperty({ name: `${address}`, location: { address, city, state: stateCode, coords: [parseFloat(cityData[0].lat), parseFloat(cityData[0].lon)] } });
             setOnboardingStep('map');
           } else {
             setErrorObj('Could not locate address. Please verify your input.');

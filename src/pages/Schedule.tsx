@@ -37,7 +37,9 @@ const statusIcon = (s: string) => {
 
 /* ──────────────────────────────── Component ─────────────────────── */
 export function Schedule() {
-  const { location } = useStore();
+  const { properties, activePropertyId } = useStore();
+  const property = properties.find(p => p.id === activePropertyId);
+  const location = property?.location;
   const [forecast, setForecast] = useState<DayForecast[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

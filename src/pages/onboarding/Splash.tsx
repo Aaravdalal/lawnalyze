@@ -3,10 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
 
 const LOAD_STEPS = [
-  'Initializing Lawnalyze…',
-  'Loading satellite engine…',
-  'Connecting weather service…',
-  'Preparing analytics…',
+  'Loading images…',
+  'Loading fonts…',
+  'Initializing app…',
   'Ready!',
 ];
 
@@ -17,13 +16,47 @@ export function Splash() {
   const [loadingDone, setLoadingDone] = useState(false);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) { clearInterval(interval); return 100; }
-        return prev + 2;
+    let isMounted = true;
+    
+    const resources = [
+      new Promise<void>((resolve) => {
+        const img = new Image();
+        img.src = '/lawnalyze-logo.png';
+        if (img.complete) resolve();
+        else {
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        }
+      }),
+      new Promise<void>((resolve) => {
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(() => resolve());
+        } else {
+          resolve();
+        }
+      }),
+      new Promise<void>((resolve) => {
+        if (document.readyState === 'complete') {
+          resolve();
+        } else {
+          window.addEventListener('load', () => resolve());
+          setTimeout(resolve, 1000); // Fallback
+        }
+      })
+    ];
+
+    let loadedCount = 0;
+    resources.forEach((promise) => {
+      promise.then(() => {
+        if (!isMounted) return;
+        loadedCount++;
+        setProgress(Math.min(100, Math.floor((loadedCount / resources.length) * 100)));
       });
-    }, 50);
-    return () => clearInterval(interval);
+    });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {

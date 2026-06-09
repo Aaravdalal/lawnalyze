@@ -3,7 +3,10 @@ import { useStore } from '../store/useStore';
 import { calculateDynamicWaterStats, type WaterStats } from '../lib/waterMath';
 
 export function useWaterStats() {
-  const { lawnAreaSqFt, location } = useStore();
+  const { properties, activePropertyId } = useStore();
+  const property = properties.find(p => p.id === activePropertyId);
+  const location = property?.location;
+  const lawnAreaSqFt = property?.lawns.reduce((sum, lawn) => sum + lawn.areaSqFt, 0) || 0;
   const [stats, setStats] = useState<WaterStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

@@ -6,7 +6,17 @@ import { MapContainer, TileLayer, GeoJSON } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
 export function PropertySetup() {
-  const { location, lawnAreaSqFt, boundaryGeoJSON, setOnboardingStep } = useStore();
+  const { properties, activePropertyId, setOnboardingStep } = useStore();
+  const property = properties.find(p => p.id === activePropertyId);
+  const location = property?.location;
+  const lawnAreaSqFt = property?.lawns.reduce((sum, lawn) => sum + lawn.areaSqFt, 0) || 0;
+
+  const boundaryGeoJSON = property && property.lawns.length > 0 
+    ? {
+        type: "FeatureCollection",
+        features: property.lawns.map(l => l.boundaryGeoJSON).filter(Boolean)
+      } 
+    : null;
 
   const handleEditAddress = () => {
     setOnboardingStep('address');

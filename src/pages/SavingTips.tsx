@@ -39,7 +39,10 @@ function Badge({ children, className }: { children: React.ReactNode; className?:
 }
 
 export function SavingTips() {
-  const { lawnAreaSqFt, location } = useStore();
+  const { properties, activePropertyId } = useStore();
+  const property = properties.find(p => p.id === activePropertyId);
+  const location = property?.location;
+  const lawnAreaSqFt = property?.lawns.reduce((sum, lawn) => sum + lawn.areaSqFt, 0) || 0;
   const { loading } = useWaterStats();
   
   if (loading) {
